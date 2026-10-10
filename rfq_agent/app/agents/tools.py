@@ -52,10 +52,24 @@ def simulate_quote(
             "message": f"Bid {bid_id} was not found."
         }
 
+    pricing_policy = get_pricing_policy_data(
+        bid["customer_id"]
+    )
+
+    if pricing_policy is None:
+        return {
+            "status": "REJECTED",
+            "message": (
+                "No applicable pricing policy was found "
+                "for this customer or globally."
+            )
+        }
+
     try:
         result = simulation_service.simulate(
             bid=bid,
-            proposed_quote_price=proposed_quote_price
+            proposed_quote_price=proposed_quote_price,
+            pricing_policy=pricing_policy
         )
 
         return {

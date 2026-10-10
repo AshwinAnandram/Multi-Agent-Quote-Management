@@ -47,7 +47,8 @@ def simulate_quote(bid_id: int, request: QuoteSimulationRequest):
     try:
         simulation = simulation_service.simulate(
             bid=bid,
-            proposed_quote_price=request.proposed_quote_price
+            proposed_quote_price=request.proposed_quote_price,
+            pricing_policy=pricing_policy
         )
 
         return {

@@ -1,4 +1,7 @@
+import math
+
 from app.services.ml_prediction import MLPredictionService
+from app.services.pricing_policy import validate_quote_policy
 
 
 class QuoteSimulationService:
@@ -12,11 +15,27 @@ class QuoteSimulationService:
     def simulate(
         self,
         bid: dict,
-        proposed_quote_price: float
+        proposed_quote_price: float,
+        pricing_policy: dict | None = None
     ) -> dict:
 
+        proposed_quote_price = float(proposed_quote_price)
         total_cost = float(bid["total_cost"])
         deal_size = float(bid["deal_size"])
+        current_quote_price = float(bid["quote_price"])
+
+        if not all(
+            math.isfinite(value)
+            for value in (
+                proposed_quote_price,
+                total_cost,
+                deal_size,
+                current_quote_price
+            )
+        ):
+            raise ValueError(
+                "Quote price, bid total cost, and deal size must be finite numbers."
+            )
 
         if proposed_quote_price <= 0:
             raise ValueError(
@@ -49,11 +68,21 @@ class QuoteSimulationService:
                 "Proposed quote price cannot be below total cost."
             )
 
-        current_quote_price = float(bid["quote_price"])
+        if current_quote_price <= 0:
+            raise ValueError(
+                "Current quote price must be greater than zero."
+            )
+
         discount_pct = (
             (current_quote_price - proposed_quote_price)
             / current_quote_price
             * 100
+        )
+
+        validate_quote_policy(
+            margin_pct=margin_pct,
+            discount_pct=discount_pct,
+            pricing_policy=pricing_policy
         )
 
         quote_to_cost_ratio = (
@@ -64,9 +93,7 @@ class QuoteSimulationService:
             current_quote_price - proposed_quote_price
         )
 
-        deal_size_log = (
-            __import__("math").log1p(deal_size)
-        )
+        deal_size_log = math.log1p(deal_size)
 
         features = {
             "total_cost": total_cost,

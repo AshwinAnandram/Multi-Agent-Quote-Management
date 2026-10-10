@@ -203,6 +203,7 @@ class RiskEvidenceService:
         simulation = self.simulation_service.simulate(
             bid=bid,
             proposed_quote_price=proposed_quote_price,
+            pricing_policy=pricing_policy,
         )
 
         deal_size = float(bid["deal_size"])

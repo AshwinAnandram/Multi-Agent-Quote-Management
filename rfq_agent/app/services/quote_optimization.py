@@ -1,3 +1,4 @@
+from app.services.pricing_policy import get_policy_limits
 from app.services.quote_simulation import QuoteSimulationService
 
 
@@ -21,6 +22,9 @@ class QuoteOptimizationService:
 
         total_cost = float(bid["total_cost"])
         deal_size = float(bid["deal_size"])
+        min_margin_pct, max_discount_pct = get_policy_limits(
+            pricing_policy
+        )
 
         lower_bound = (
             total_cost
@@ -49,14 +53,6 @@ class QuoteOptimizationService:
                 "Number of optimal prices must be at least one."
             )
 
-        min_margin_pct = pricing_policy.get(
-            "min_margin_pct"
-        )
-
-        max_discount_pct = pricing_policy.get(
-            "max_discount_pct"
-        )
-
         prices = []
 
         current_price = lower_bound
@@ -76,26 +72,9 @@ class QuoteOptimizationService:
             try:
                 result = self.simulation_service.simulate(
                     bid=bid,
-                    proposed_quote_price=price
+                    proposed_quote_price=price,
+                    pricing_policy=pricing_policy
                 )
-
-                if (
-                    min_margin_pct is not None
-                    and result["margin_pct"] < float(
-                        min_margin_pct
-                    )
-                ):
-                    rejected_count += 1
-                    continue
-
-                if (
-                    max_discount_pct is not None
-                    and result["discount_pct"] > float(
-                        max_discount_pct
-                    )
-                ):
-                    rejected_count += 1
-                    continue
 
                 results.append(result)
 
