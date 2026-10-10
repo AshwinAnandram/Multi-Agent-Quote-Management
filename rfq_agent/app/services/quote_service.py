@@ -94,7 +94,7 @@ def apply_price(
             "pricing_policy_id": pricing_policy[
                 "pricing_policy_id"
             ],
-            "min_margin_pct": min_margin_pct,
-            "max_discount_pct": max_discount_pct
+            "min_margin_pct": pricing_policy["min_margin_pct"],
+            "max_discount_pct": pricing_policy["max_discount_pct"]
         }
     }
