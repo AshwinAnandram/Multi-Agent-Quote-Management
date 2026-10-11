@@ -9,6 +9,7 @@ from app.services.ml_prediction import MLPredictionService
 from app.services.quote_simulation import (
     QuoteSimulationService
 )
+from app.services.pricing_policy import validate_quote_policy
 
 
 router = APIRouter(
@@ -49,6 +50,7 @@ def simulate_quote(bid_id: int, request: QuoteSimulationRequest):
             bid=bid,
             proposed_quote_price=request.proposed_quote_price
         )
+        validate_quote_policy(simulation, pricing_policy)
 
         return {
             "simulation": simulation,

@@ -1,5 +1,6 @@
 from app.services.ml_prediction import MLPredictionService
 from app.services.quote_simulation import QuoteSimulationService
+from app.services.pricing_policy import validate_quote_policy
 from app.repositories.bid_repository import (
     get_bid,
     get_bid_simulation_context,
@@ -38,18 +39,15 @@ def apply_price(
         bid_id
     )
 
-    current_quote_price = float(
-        current_version["quote_price"]
-    )
-
-    if proposed_quote_price == current_quote_price:
-        raise ValueError(
-            "Proposed quote price is already the current quote price."
-        )
-
     if current_version is None:
         raise ValueError(
             f"Bid {bid_id} does not have a current quote version."
+        )
+
+    current_quote_price = float(current_version["quote_price"])
+    if proposed_quote_price == current_quote_price:
+        raise ValueError(
+            "Proposed quote price is already the current quote price."
         )
 
     simulation_context = get_bid_simulation_context(
@@ -75,31 +73,10 @@ def apply_price(
         proposed_quote_price=proposed_quote_price
     )
 
-    min_margin_pct = pricing_policy.get(
-        "min_margin_pct"
-    )
+    validate_quote_policy(result, pricing_policy)
 
-    max_discount_pct = pricing_policy.get(
-        "max_discount_pct"
-    )
-
-    if (
-        min_margin_pct is not None
-        and result["margin_pct"] < float(min_margin_pct)
-    ):
-        raise ValueError(
-            f"Proposed quote does not meet the minimum "
-            f"margin requirement of {float(min_margin_pct):.2f}%."
-        )
-
-    if (
-        max_discount_pct is not None
-        and result["discount_pct"] > float(max_discount_pct)
-    ):
-        raise ValueError(
-            f"Proposed quote exceeds the maximum "
-            f"discount requirement of {float(max_discount_pct):.2f}%."
-        )
+    min_margin_pct = pricing_policy.get("min_margin_pct")
+    max_discount_pct = pricing_policy.get("max_discount_pct")
 
     quote_version = create_quote_version(
         bid_id=bid_id,

@@ -8,7 +8,6 @@ function PriceSimulator({ bid, pricingPolicy, onPriceApplied }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [applying, setApplying] = useState(false);
-  const [applyMessage, setApplyMessage] = useState(null);
   const isSameAsCurrentQuote = simulation && Number(simulation.proposed_quote_price) === Number(bid.current_quote_price);
 
   async function handleSimulate() {
@@ -52,8 +51,6 @@ async function handleApplyPrice() {
 
   setApplying(true);
   setError(null);
-  setApplyMessage(null);
-
   try {
     const response = await fetch(
       `${API_BASE_URL}/bids/${bid.bid_id}/apply-price`,

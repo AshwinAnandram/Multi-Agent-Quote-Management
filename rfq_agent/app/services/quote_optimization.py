@@ -1,4 +1,5 @@
 from app.services.quote_simulation import QuoteSimulationService
+from app.services.pricing_policy import validate_quote_policy
 
 
 class QuoteOptimizationService:
@@ -49,13 +50,8 @@ class QuoteOptimizationService:
                 "Number of optimal prices must be at least one."
             )
 
-        min_margin_pct = pricing_policy.get(
-            "min_margin_pct"
-        )
-
-        max_discount_pct = pricing_policy.get(
-            "max_discount_pct"
-        )
+        min_margin_pct = pricing_policy.get("min_margin_pct")
+        max_discount_pct = pricing_policy.get("max_discount_pct")
 
         prices = []
 
@@ -79,24 +75,7 @@ class QuoteOptimizationService:
                     proposed_quote_price=price
                 )
 
-                if (
-                    min_margin_pct is not None
-                    and result["margin_pct"] < float(
-                        min_margin_pct
-                    )
-                ):
-                    rejected_count += 1
-                    continue
-
-                if (
-                    max_discount_pct is not None
-                    and result["discount_pct"] > float(
-                        max_discount_pct
-                    )
-                ):
-                    rejected_count += 1
-                    continue
-
+                validate_quote_policy(result, pricing_policy)
                 results.append(result)
 
             except ValueError:

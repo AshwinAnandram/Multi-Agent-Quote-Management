@@ -1,4 +1,5 @@
 import json
+import re
 
 from openai import OpenAI
 
@@ -12,6 +13,19 @@ from app.agents.tools import (
 
 
 class QuotingAgent:
+
+    _OPTIMIZATION_COUNTS = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
+    }
 
     def __init__(
         self,
@@ -38,7 +52,15 @@ class QuotingAgent:
             "recommend a price",
             "what price should",
             "price that maximizes",
-            "maximize expected profit"
+            "maximize expected profit",
+            "maximize profit",
+            "maximum expected profit",
+            "maximum profit",
+            "highest expected profit",
+            "highest profit",
+            "profit is maximum",
+            "profit is maximized",
+            "most profitable prices",
         ]
 
         if any(
@@ -48,6 +70,137 @@ class QuotingAgent:
             return "optimize_price"
 
         return None
+
+    def _extract_optimization_count(
+        self,
+        user_message: str,
+    ) -> int | None:
+        """Extract an explicit result count near a request for prices."""
+        count_pattern = r"(?P<count>\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)"
+        item_pattern = r"(?:prices?|quotes?|options?|results?)"
+        action_pattern = r"(?:list|give|show|return|provide|find|identify)"
+
+        patterns = (
+            rf"\b{action_pattern}\s+(?:me\s+)?(?:the\s+)?{count_pattern}"
+            rf"\s+(?:(?:best|optimal|top)\s+)?{item_pattern}\b",
+            rf"\btop\s+{count_pattern}\s+{item_pattern}\b",
+            rf"\b{count_pattern}\s+(?:best|optimal)\s+{item_pattern}\b",
+        )
+
+        message = user_message.lower()
+        for pattern in patterns:
+            match = re.search(pattern, message)
+            if not match:
+                continue
+
+            raw_count = match.group("count")
+            count = self._OPTIMIZATION_COUNTS.get(raw_count)
+            if count is None:
+                count = int(raw_count)
+            return max(1, min(10, count))
+
+        return None
+
+    def _is_margin_threshold_question(self, user_message: str) -> bool:
+        message = user_message.lower()
+        asks_about_margin = "margin" in message
+        asks_about_price = "price" in message or "quote" in message
+        asks_about_boundary = any(
+            term in message
+            for term in (
+                "below",
+                "under",
+                "minimum",
+                "threshold",
+                "fall",
+                "drop",
+                "goes",
+            )
+        )
+        return asks_about_margin and asks_about_price and asks_about_boundary
+
+    def _is_discount_threshold_question(self, user_message: str) -> bool:
+        message = user_message.lower()
+        asks_about_discount = "discount" in message
+        asks_about_price = "price" in message or "quote" in message
+        asks_about_boundary = any(
+            term in message
+            for term in (
+                "maximum",
+                "max",
+                "limit",
+                "above",
+                "over",
+                "exceed",
+                "threshold",
+                "allowed",
+                "goes",
+                "below",
+            )
+        )
+        return asks_about_discount and asks_about_price and asks_about_boundary
+
+    def _answer_margin_threshold(self, bid_id: int) -> str:
+        result = get_bid(bid_id)
+        if result.get("status") != "FOUND":
+            return result.get("message", "Bid details are unavailable.")
+
+        bid = result["bid"]
+        boundary = bid.get("margin_boundary", {})
+        if boundary.get("status") == "NO_FEASIBLE_PRICE":
+            return (
+                f"Bid {bid_id} has no quote price within its deal-size limit "
+                f"that meets the {boundary['min_margin_pct']:.2f}% minimum margin."
+            )
+
+        if boundary.get("status") != "AVAILABLE":
+            return (
+                "I can’t determine the minimum-margin quote boundary: "
+                f"{boundary.get('reason', 'the required policy data is unavailable')}"
+            )
+
+        minimum_margin_pct = boundary["min_margin_pct"]
+        boundary_price = boundary["minimum_quote_price_for_margin"]
+        first_below_price = boundary["first_cent_below_margin_boundary"]
+        return (
+            f"For bid {bid_id}, the applicable minimum margin is "
+            f"{minimum_margin_pct:.2f}%. A quote of ${boundary_price:,.2f} "
+            f"meets that margin. The first cent-denominated price below the "
+            f"boundary, ${first_below_price:,.2f}, falls below the minimum margin."
+        )
+
+    def _answer_discount_threshold(self, bid_id: int) -> str:
+        result = get_bid(bid_id)
+        if result.get("status") != "FOUND":
+            return result.get("message", "Bid details are unavailable.")
+
+        bid = result["bid"]
+        boundary = bid.get("discount_boundary", {})
+        if boundary.get("status") == "NO_FEASIBLE_PRICE":
+            return (
+                f"Bid {bid_id} has no quote price within its deal-size limit "
+                f"that stays within the {boundary['max_discount_pct']:.2f}% "
+                "maximum discount."
+            )
+
+        if boundary.get("status") != "AVAILABLE":
+            return (
+                "I can’t determine the maximum-discount quote boundary: "
+                f"{boundary.get('reason', 'the required policy data is unavailable')}"
+            )
+
+        max_discount_pct = boundary["max_discount_pct"]
+        reference_price = boundary["reference_quote_price"]
+        boundary_price = boundary["minimum_quote_price_within_discount_limit"]
+        first_below_price = boundary["first_cent_below_discount_boundary"]
+        return (
+            f"For bid {bid_id}, the applicable maximum discount is "
+            f"{max_discount_pct:.2f}% of the current quote price "
+            f"${reference_price:,.2f}. A quote of ${boundary_price:,.2f} "
+            f"is the lowest cent-denominated price within that limit. "
+            f"The first cent below it, ${first_below_price:,.2f}, exceeds "
+            "the maximum discount."
+        )
 
     def synthesize(
         self,
@@ -106,6 +259,12 @@ class QuotingAgent:
         user_message: str
     ) -> str:
 
+        if self._is_margin_threshold_question(user_message):
+            return self._answer_margin_threshold(bid_id)
+
+        if self._is_discount_threshold_question(user_message):
+            return self._answer_discount_threshold(bid_id)
+
         tools = [
             {
                 "type": "function",
@@ -114,7 +273,9 @@ class QuotingAgent:
                     "Retrieve authoritative information about a bid. "
                     "Use this when the user asks about the current "
                     "quote, margin, discount, customer, bid status, "
-                    "bid date, competitor information, or line items."
+                    "bid date, competitor information, or line items. "
+                    "The bid result includes current pricing-policy "
+                    "limits and a deterministic policy_decision."
                 ),
                 "parameters": {
                     "type": "object",
@@ -190,11 +351,23 @@ class QuotingAgent:
                     "commercial pricing policy. "
                     "The policy may be customer-specific or global. "
                     "Use this when the user asks for the optimal, "
-                    "recommended, or best price for the bid."
+                    "recommended, or best price for the bid. "
+                    "Accept top_n when the user asks for multiple "
+                    "best prices and return ranked feasible results."
                 ),
                 "parameters": {
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "top_n": {
+                            "type": "integer",
+                            "description": (
+                                "How many highest expected-profit "
+                                "feasible prices to return. Use the "
+                                "count requested by the user; default "
+                                "to 1 when no count is stated."
+                            ),
+                        }
+                    },
                     "additionalProperties": False
                 }
             },
@@ -241,6 +414,12 @@ class QuotingAgent:
             "recommended price, price that maximizes expected profit, "
             "or asks what price should be quoted, "
             "you MUST use the optimize_price tool. "
+            "Requests for a stated number of prices with maximum, "
+            "highest, or greatest profit are optimization requests. "
+            "Pass the requested count as top_n and do not ask the user "
+            "to repeat a count already provided. Return up to top_n "
+            "distinct feasible results in descending expected-profit order. "
+            "If fewer feasible results exist, explain how many were found. "
 
             "A bid being closed, won, lost, or having an existing quote "
             "does NOT prevent the optimize_price tool from being used. "
@@ -262,32 +441,21 @@ class QuotingAgent:
             "or replace a tool result. "
 
             "Never invent a value that is not present "
-            "in a tool result."
-        )
+            "in a tool result. "
 
-        response = self.client.responses.create(
-            model=self.deployment_name,
-            input=[
-                {
-                    "type": "message",
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "type": "message",
-                    "role": "user",
-                    "content": (
-                        f"The current bid ID is {bid_id}. "
-                        f"The sales representative says: "
-                        f"{user_message}"
-                    )
-                }
-            ],
-            tools=tools,
-            tool_choice="required"
+            "For questions about the current quote's margin, discount, "
+            "policy limits, or whether the current quote meets policy, "
+            "you MUST use get_bid and report its policy_decision exactly. "
+            "A REJECTED or NO_POLICY decision must never be described as "
+            "compliant or approved. A risk classification cannot change "
+            "a pricing-policy decision. For a proposed price, use the "
+            "simulation or comparison tool and report its validation result."
         )
 
         forced_tool = self._detect_forced_tool(
+            user_message
+        )
+        requested_count = self._extract_optimization_count(
             user_message
         )
 
@@ -378,8 +546,16 @@ class QuotingAgent:
 
                 elif item.name == "optimize_price":
 
+                    top_n = (
+                        requested_count
+                        if requested_count is not None
+                        else arguments.get("top_n", 1)
+                    )
+                    top_n = max(1, min(10, int(top_n)))
+
                     result = optimize_price(
-                        bid_id=bid_id
+                        bid_id=bid_id,
+                        top_n=top_n,
                     )
 
                 elif item.name == "lookup_customer_history":

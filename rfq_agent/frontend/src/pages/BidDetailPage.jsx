@@ -1,5 +1,5 @@
 import Copilot from "../components/Copilot";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import PriceSimulator from "../components/PriceSimulator";
 
@@ -13,7 +13,7 @@ function BidDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  async function fetchBidDetail() {
+  const fetchBidDetail = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -33,10 +33,11 @@ function BidDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [bidId]);
+
   useEffect(() => {
     fetchBidDetail();
-  }, [bidId]);
+  }, [fetchBidDetail]);
 
   function formatCurrency(value) {
     if (value === null || value === undefined) {
@@ -268,11 +269,14 @@ function BidDetailPage() {
       </div>
 
       {bid.status === "OPEN" && (
-        <PriceSimulator
-        bid={bid}
-        pricingPolicy={bid.pricing_policy}
-        onPriceApplied={fetchBidDetail}
-        />
+        <>
+          <PriceSimulator
+            bid={bid}
+            pricingPolicy={bid.pricing_policy}
+            onPriceApplied={fetchBidDetail}
+          />
+          <Copilot key={bid.bid_id} bid={bid} />
+        </>
       )}
     </main>
   );
