@@ -191,6 +191,45 @@ This is an actively developed project. Features, integrations, and setup
 instructions may evolve. Consult the code and current configuration for
 the implemented behavior of a particular environment.
 
+## Gmail RFQ intake (initial provider)
+
+The Gmail worker polls the configured inbox, extracts the email body and
+supported PDF, DOCX, XLSX, TXT, or CSV attachments, and saves each message
+once as an RFQ with `ON_HOLD` status. Emails and attachments are extracted
+as separate sources; disagreements and unreadable attachments are retained
+as review evidence. Customer and catalog-product mapping, quote entry, and
+acceptance happen in the Bids page's **On Hold** review flow. Scanned PDFs
+are flagged for review because OCR is not configured.
+
+Customers without an existing record stay on hold until an executive creates
+or selects a customer. During customer creation, the executive can use the
+active global policy or enter both limits to create an active customer-specific
+policy. Opening-quote
+discount is measured against the sum of mapped catalog list prices times
+requested quantities; margin is measured against mapped catalog cost. The
+opening quote must also fit within deal size, which defaults to the opening
+quote when the email provides no deal-size value.
+
+To configure the connector:
+
+1. Enable the Gmail API in a Google Cloud project and configure OAuth consent
+   for the dedicated inbox.
+2. Create an OAuth refresh token with the worker's `gmail.modify` scope; it
+   reads messages and applies a processed label after the database save.
+3. Copy `rfq_agent/.env.example` to the local secret-bearing environment
+   file and set the database, Azure model, mailbox, OAuth client, and refresh
+   token values. Keep the real file out of source control.
+4. Install the libraries in `rfq_agent/requirements-rfq-intake.txt` in the
+   backend environment.
+5. From `rfq_agent/`, run `python -m app.workers.gmail_rfq_intake` as a
+   separate long-running worker process.
+
+The initial intake implementation uses the existing `rfqs` and
+`rfq_line_items` tables and stores the message body, attachment extraction,
+source-by-source fields, and conflicts in `rfqs.extracted_json`. Outlook can
+use the same `InboundEmail` and intake/review flow through a separate provider
+adapter.
+
 ## Security
 
 -   Never commit `.env` files, API keys, access tokens, database

@@ -4,6 +4,7 @@ from app.api.bids import router as bids_router
 from app.api.simulation import router as simulation_router
 from app.api.copilot import router as copilot_router
 from app.api.quotes import router as quotes_router
+from app.api.rfqs import router as rfqs_router
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -23,3 +24,4 @@ app.include_router(bids_router)
 app.include_router(simulation_router)
 app.include_router(copilot_router)
 app.include_router(quotes_router)
+app.include_router(rfqs_router)

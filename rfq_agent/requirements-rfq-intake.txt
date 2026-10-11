@@ -1,0 +1,6 @@
+# Additional libraries required for Gmail RFQ intake and attachment parsing.
+google-api-python-client
+google-auth
+pypdf
+python-docx
+openpyxl

@@ -252,6 +252,11 @@ def get_customer_history(bid_id: int):
         return dict(row._mapping)
 
 def get_pricing_policy(customer_id: int):
+    with engine.connect() as connection:
+        return get_pricing_policy_in_connection(connection, customer_id)
+
+
+def get_pricing_policy_in_connection(connection, customer_id: int):
     query = text("""
         SELECT
             pricing_policy_id,
@@ -273,18 +278,11 @@ def get_pricing_policy(customer_id: int):
         LIMIT 1
     """)
 
-    with engine.connect() as connection:
-        result = connection.execute(
-            query,
-            {"customer_id": customer_id}
-        )
-
-        row = result.fetchone()
-
-        if row is None:
-            return None
-
-        return dict(row._mapping)
+    row = connection.execute(
+        query,
+        {"customer_id": customer_id}
+    ).fetchone()
+    return dict(row._mapping) if row is not None else None
 
 def get_current_quote_version(bid_id: int):
     query = text("""

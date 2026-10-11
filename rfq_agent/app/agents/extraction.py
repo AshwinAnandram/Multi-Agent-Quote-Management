@@ -27,8 +27,11 @@ class RFQExtractionAgent:
                     "role": "system",
                     "content": (
                         "You are an RFQ extraction agent. "
-                        "Extract information from customer RFQ emails. "
+                        "Extract RFQ details and quoted prices or terms "
+                        "from a single email or document source. "
                         "Do not invent information. "
+                        "Leave missing values empty. Do not reconcile this "
+                        "source with any other source. "
                         "Return data that conforms exactly "
                         "to the supplied schema."
                     )
