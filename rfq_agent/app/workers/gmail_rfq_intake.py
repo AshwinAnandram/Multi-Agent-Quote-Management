@@ -7,9 +7,10 @@ import time
 from app.agents.extraction import RFQExtractionAgent
 from app.azure_client import create_azure_openai_client
 from app.config import get_required_setting
+from app.repositories.bid_repository import apply_closed_bid_outcome
 from app.repositories.rfq_repository import save_inbound_rfq
 from app.services.gmail_client import GmailInbox
-from app.services.rfq_intake import extract_inbound_email
+from app.services.rfq_intake import extract_inbound_email, resolve_bid_outcome
 
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -21,12 +22,23 @@ def poll_once(inbox: GmailInbox, extraction_agent: RFQExtractionAgent) -> int:
     for email in inbox.list_unprocessed():
         try:
             intake = extract_inbound_email(email, extraction_agent)
-            saved = save_inbound_rfq(email, intake)
+            outcome = resolve_bid_outcome(intake)
+            if outcome:
+                saved = apply_closed_bid_outcome(
+                    **outcome,
+                    source_message_id=email.source_message_id,
+                )
+                if not saved["matched"]:
+                    saved = save_inbound_rfq(email, intake)
+            else:
+                saved = save_inbound_rfq(email, intake)
             inbox.mark_processed(email)
             logger.info(
-                "Handled Gmail message id=%s rfq_id=%s duplicate=%s",
+                "Handled Gmail message id=%s bid_id=%s rfq_id=%s status=%s duplicate=%s",
                 email.message_id,
-                saved["rfq_id"],
+                saved.get("bid_id"),
+                saved.get("rfq_id"),
+                saved.get("status", saved.get("processing_status")),
                 saved["duplicate"],
             )
             processed += 1

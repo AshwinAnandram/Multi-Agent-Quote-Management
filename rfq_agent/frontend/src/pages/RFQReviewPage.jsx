@@ -15,6 +15,8 @@ function RFQReviewPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [showCreateCustomer, setShowCreateCustomer] = useState(false);
+  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const [newCustomer, setNewCustomer] = useState({ customer_name: "", industry: "", country: "", segment: "", min_margin_pct: "", max_discount_pct: "" });
   const [newCustomerPolicyMode, setNewCustomerPolicyMode] = useState("GLOBAL_DEFAULT");
   const [confirmConflicts, setConfirmConflicts] = useState(false);
@@ -54,6 +56,8 @@ function RFQReviewPage() {
 
   const email = rfq?.extracted_json || {};
   const intake = email.intake || {};
+  const extractedBidOutcome = intake.merged?.bid_outcome || {};
+  const isRejected = rfq?.processing_status === "REJECTED";
   const quoteFallback = form?.opening_quote_price || "";
 
   function updateField(field, value) {
@@ -126,14 +130,17 @@ function RFQReviewPage() {
   }
 
   async function rejectRFQ() {
-    const reason = window.prompt("Reason for rejecting this request:");
-    if (!reason) return;
+    const reason = rejectReason.trim();
+    if (!reason) {
+      setError("Enter a reason before rejecting this request.");
+      return;
+    }
     setBusy(true); setError("");
     try {
       await readResponse(await fetch(`${API_BASE_URL}/rfqs/${rfqId}/reject`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }),
       }));
-      navigate("/bids");
+      navigate("/bids?tab=rejected");
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
@@ -187,8 +194,10 @@ function RFQReviewPage() {
 
   return (
     <main className="content">
-      <button className="back-button" onClick={() => navigate("/bids?tab=on-hold")}>← Back to On Hold</button>
-      <div className="page-header"><h2>Review RFQ {rfq.rfq_id}</h2><span className="hold-badge">On Hold</span></div>
+      <button className="back-button" onClick={() => navigate(isRejected ? "/bids?tab=rejected" : "/bids?tab=on-hold")}>{isRejected ? "← Back to Rejected" : "← Back to On Hold"}</button>
+      <div className="page-header"><h2>{isRejected ? "RFQ details" : "Review RFQ"} {rfq.rfq_id}</h2><span className="hold-badge">{isRejected ? "Rejected" : "On Hold"}</span></div>
+
+      {isRejected && <section className="detail-section"><h3>Rejection reason</h3><p>{rfq.rejection_reason || "No reason recorded."}</p></section>}
 
       {error && <div className="message error">{error}</div>}
       {message && <div className="message success">{message}</div>}
@@ -203,6 +212,12 @@ function RFQReviewPage() {
 
       <section className="detail-section">
         <h3>Extracted fields</h3>
+        {(extractedBidOutcome.bid_id || extractedBidOutcome.status) && (
+          <div className="review-alert">
+            Detected outcome email · Bid ID: {extractedBidOutcome.bid_id || "missing"} · Outcome: {extractedBidOutcome.status || "missing"}.
+            This request was not automatically applied to a CLOSED bid. Accepting it creates an OPEN bid for executive processing.
+          </div>
+        )}
         {conflictCount > 0 && <div className="review-alert">{conflictCount} conflict(s) between the email and its attachments require your review.</div>}
         {(intake.issues || []).map((issue, index) => <div className="review-alert" key={`${issue.code}-${index}`}>{issue.source}: {issue.message}</div>)}
         {(intake.missing_fields || []).length > 0 && <p className="muted">Initially missing from source: {intake.missing_fields.join(", ")}</p>}
@@ -224,12 +239,12 @@ function RFQReviewPage() {
             {attachment.extracted_text && <pre>{attachment.extracted_text}</pre>}
           </details>
         ))}
-        <p className="muted">Review the extracted data and resolve conflicts before accepting.</p>
+        {!isRejected && <p className="muted">Review the extracted data and resolve conflicts before accepting.</p>}
       </section>
 
       <section className="detail-section">
         <h3>Bid details</h3>
-        {showCreateCustomer && <div className="new-customer-form">
+        {!isRejected && showCreateCustomer && <div className="new-customer-form">
           <h4>Create customer record</h4>
           <p className="muted">Choose the active global policy or set customer-specific limits. Customer-specific limits apply to new records created here.</p>
           <div className="review-form-grid">
@@ -250,36 +265,56 @@ function RFQReviewPage() {
           <div className="customer-actions"><button type="button" onClick={addCustomer} disabled={busy || !newCustomer.customer_name.trim() || (newCustomerPolicyMode === "CUSTOMER_SPECIFIC" && (!newCustomer.min_margin_pct || !newCustomer.max_discount_pct))}>Create and select</button><button type="button" onClick={() => setShowCreateCustomer(false)}>Cancel</button></div>
         </div>}
         <div className="review-form-grid">
-          <label>Customer<select value={form.customer_id} onChange={(e) => updateField("customer_id", e.target.value)}><option value="">Select customer…</option>{options.customers.map((item) => <option key={item.customer_id} value={item.customer_id}>{item.customer_name}</option>)}</select><button type="button" className="small-action" onClick={() => setShowCreateCustomer((value) => !value)}>Create new customer</button></label>
-          <label>Sales executive<select value={form.sales_rep_id} onChange={(e) => updateField("sales_rep_id", e.target.value)}><option value="">Select executive…</option>{options.sales_reps.map((item) => <option key={item.sales_rep_id} value={item.sales_rep_id}>{item.sales_rep_name}{item.region ? ` · ${item.region}` : ""}</option>)}</select></label>
-          <label>Request title<input value={form.rfq_description} onChange={(e) => updateField("rfq_description", e.target.value)} /></label>
-          <label>Required by<input type="date" value={String(form.required_by_date).slice(0, 10)} onChange={(e) => updateField("required_by_date", e.target.value)} /></label>
-          <label>Delivery location<input value={form.delivery_location} onChange={(e) => updateField("delivery_location", e.target.value)} /></label>
-          <label>Currency<input value={form.currency} onChange={(e) => updateField("currency", e.target.value)} /></label>
-          <label>Payment terms<input value={form.payment_terms} onChange={(e) => updateField("payment_terms", e.target.value)} /></label>
-          <label>Opening quote price<input type="number" min="0.01" step="0.01" value={form.opening_quote_price} onChange={(e) => updateField("opening_quote_price", e.target.value)} /></label>
-          <label>Deal size<input type="number" min="0.01" step="0.01" placeholder={quoteFallback || "Defaults to opening quote"} value={form.deal_size} onChange={(e) => updateField("deal_size", e.target.value)} /></label>
+          <label>Customer<select disabled={isRejected} value={form.customer_id} onChange={(e) => updateField("customer_id", e.target.value)}><option value="">Select customer…</option>{options.customers.map((item) => <option key={item.customer_id} value={item.customer_id}>{item.customer_name}</option>)}</select>{!isRejected && <button type="button" className="small-action" onClick={() => setShowCreateCustomer((value) => !value)}>Create new customer</button>}</label>
+          <label>Sales executive<select disabled={isRejected} value={form.sales_rep_id} onChange={(e) => updateField("sales_rep_id", e.target.value)}><option value="">Select executive…</option>{options.sales_reps.map((item) => <option key={item.sales_rep_id} value={item.sales_rep_id}>{item.sales_rep_name}{item.region ? ` · ${item.region}` : ""}</option>)}</select></label>
+          <label>Request title<input readOnly={isRejected} value={form.rfq_description} onChange={(e) => updateField("rfq_description", e.target.value)} /></label>
+          <label>Required by<input readOnly={isRejected} type="date" value={String(form.required_by_date).slice(0, 10)} onChange={(e) => updateField("required_by_date", e.target.value)} /></label>
+          <label>Delivery location<input readOnly={isRejected} value={form.delivery_location} onChange={(e) => updateField("delivery_location", e.target.value)} /></label>
+          <label>Currency<input readOnly={isRejected} value={form.currency} onChange={(e) => updateField("currency", e.target.value)} /></label>
+          <label>Payment terms<input readOnly={isRejected} value={form.payment_terms} onChange={(e) => updateField("payment_terms", e.target.value)} /></label>
+          <label>Opening quote price<input readOnly={isRejected} type="number" min="0.01" step="0.01" value={form.opening_quote_price} onChange={(e) => updateField("opening_quote_price", e.target.value)} /></label>
+          <label>Deal size<input readOnly={isRejected} type="number" min="0.01" step="0.01" placeholder={quoteFallback || "Defaults to opening quote"} value={form.deal_size} onChange={(e) => updateField("deal_size", e.target.value)} /></label>
         </div>
         <h4>Requested items</h4>
-        <button type="button" className="small-action add-line-button" onClick={addLineItem}>Add requested item</button>
+        {!isRejected && <button type="button" className="small-action add-line-button" onClick={addLineItem}>Add requested item</button>}
         {form.line_items.map((line, index) => (
           <div className="rfq-line-editor" key={line.rfq_line_item_id || `new-${index}`}>
-            <label>Customer item<input value={line.product_name_raw} onChange={(e) => updateLine(index, "product_name_raw", e.target.value)} /></label>
-            <label>Catalog product<select value={line.product_id} onChange={(e) => updateLine(index, "product_id", e.target.value)}><option value="">Map product…</option>{options.products.map((product) => <option key={product.product_id} value={product.product_id}>{product.product_name}</option>)}</select></label>
-            <label>Quantity<input type="number" min="0.01" step="any" value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} /></label>
-            <label>Unit<input value={line.unit} onChange={(e) => updateLine(index, "unit", e.target.value)} /></label>
-            <label>Requirements<input value={line.requirements} onChange={(e) => updateLine(index, "requirements", e.target.value)} /></label>
+            <label>Customer item<input readOnly={isRejected} value={line.product_name_raw} onChange={(e) => updateLine(index, "product_name_raw", e.target.value)} /></label>
+            <label>Catalog product<select disabled={isRejected} value={line.product_id} onChange={(e) => updateLine(index, "product_id", e.target.value)}><option value="">Map product…</option>{options.products.map((product) => <option key={product.product_id} value={product.product_id}>{product.product_name}</option>)}</select></label>
+            <label>Quantity<input readOnly={isRejected} type="number" min="0.01" step="any" value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} /></label>
+            <label>Unit<input readOnly={isRejected} value={line.unit} onChange={(e) => updateLine(index, "unit", e.target.value)} /></label>
+            <label>Requirements<input readOnly={isRejected} value={line.requirements} onChange={(e) => updateLine(index, "requirements", e.target.value)} /></label>
           </div>
         ))}
       </section>
 
-      <div className="review-actions">
+      {!isRejected && <div className="review-actions">
         <button onClick={saveReview} disabled={busy}>{busy ? "Saving…" : "Save review"}</button>
         {conflictCount > 0 && <label className="conflict-confirm"><input type="checkbox" checked={confirmConflicts} onChange={(e) => setConfirmConflicts(e.target.checked)} /> I reviewed the source conflicts and selected the values to use.</label>}
         <button className="accept-button" onClick={acceptRequest} disabled={busy || (conflictCount > 0 && !confirmConflicts)}>{busy ? "Processing…" : "Accept and create open bid"}</button>
-        <button className="reject-button" onClick={rejectRFQ} disabled={busy}>Reject request</button>
+        {!showRejectForm ? (
+          <button className="reject-button" onClick={() => { setError(""); setShowRejectForm(true); }} disabled={busy}>Reject request</button>
+        ) : (
+          <div className="reject-confirmation">
+            <label htmlFor="reject-reason">Reason for rejecting this request</label>
+            <textarea
+              id="reject-reason"
+              value={rejectReason}
+              onChange={(event) => setRejectReason(event.target.value)}
+              maxLength={1000}
+              rows={3}
+              required
+            />
+            <div className="customer-actions">
+              <button className="reject-button" onClick={rejectRFQ} disabled={busy || !rejectReason.trim()}>
+                {busy ? "Rejecting…" : "Confirm rejection"}
+              </button>
+              <button type="button" onClick={() => setShowRejectForm(false)} disabled={busy}>Cancel</button>
+            </div>
+          </div>
+        )}
         <span className="muted">Acceptance creates an open bid only when it passes the active pricing policy.</span>
-      </div>
+      </div>}
     </main>
   );
 }

@@ -34,7 +34,9 @@ def get_bids(
             qv.margin_pct AS current_margin_pct,
             b.deal_size,
             b.competitor_present,
-            b.status
+            b.status,
+            b.lost_reason,
+            b.outcome_missing_fields
         FROM bids b
         JOIN customers c
             ON c.customer_id = b.customer_id
@@ -97,6 +99,10 @@ def get_bid(bid_id: int):
             b.competitor_price,
             b.days_to_quote,
             b.status,
+            b.lost_reason,
+            b.outcome_missing_fields,
+            sr.sales_rep_name,
+            sr.email AS sales_rep_email,
             qv.quote_version_id,
             qv.version_number AS current_quote_version,
             qv.quote_price AS current_quote_price,
@@ -108,6 +114,8 @@ def get_bid(bid_id: int):
         FROM bids b
         JOIN customers c
             ON c.customer_id = b.customer_id
+        LEFT JOIN sales_reps sr
+            ON sr.sales_rep_id = b.sales_rep_id
         LEFT JOIN quote_versions qv
             ON qv.bid_id = b.bid_id
             AND qv.is_current = TRUE
@@ -122,6 +130,103 @@ def get_bid(bid_id: int):
         if row is None:
             return None
         return dict(row._mapping)
+
+
+def mark_bid_closed_if_open(bid_id: int) -> bool:
+    with engine.begin() as connection:
+        result = connection.execute(
+            text("UPDATE bids SET status = 'CLOSED' WHERE bid_id = :bid_id AND status = 'OPEN'"),
+            {"bid_id": bid_id},
+        )
+        return result.rowcount == 1
+
+
+def apply_closed_bid_outcome(
+    *,
+    bid_id: int,
+    status: str,
+    source_message_id: str,
+    final_quote_price: float | None,
+    lost_reason: str | None,
+    missing_fields: list[str],
+) -> dict:
+    """Apply an explicit customer outcome to one CLOSED bid, idempotently."""
+    if status not in {"WON", "LOST"}:
+        raise ValueError("Outcome status must be WON or LOST.")
+
+    with engine.begin() as connection:
+        duplicate = connection.execute(
+            text("SELECT bid_id FROM bids WHERE outcome_source_message_id = :message_id"),
+            {"message_id": source_message_id},
+        ).scalar_one_or_none()
+        if duplicate is not None:
+            return {"matched": True, "duplicate": True, "bid_id": duplicate}
+
+        row = connection.execute(
+            text("""SELECT b.bid_id, b.status, b.total_cost, b.quote_price,
+                          qv.quote_price AS current_quote_price
+                   FROM bids b
+                   LEFT JOIN quote_versions qv
+                     ON qv.bid_id = b.bid_id AND qv.is_current = TRUE
+                   WHERE b.bid_id = :bid_id
+                   FOR UPDATE OF b"""),
+            {"bid_id": bid_id},
+        ).mappings().first()
+        if row is None or row["status"] != "CLOSED":
+            return {"matched": False, "duplicate": False, "bid_id": bid_id}
+
+        if status == "WON" and final_quote_price is not None:
+            reference_price = row["current_quote_price"] or row["quote_price"]
+            total_cost = row["total_cost"]
+            if reference_price is None or float(reference_price) <= 0 or total_cost is None:
+                if "quote_metrics" not in missing_fields:
+                    missing_fields.append("quote_metrics")
+            else:
+                discount_pct = (float(reference_price) - final_quote_price) / float(reference_price) * 100
+                margin_pct = (final_quote_price - float(total_cost)) / final_quote_price * 100
+                next_version = connection.execute(
+                    text("SELECT COALESCE(MAX(version_number), 0) + 1 FROM quote_versions WHERE bid_id = :bid_id"),
+                    {"bid_id": bid_id},
+                ).scalar_one()
+                connection.execute(
+                    text("UPDATE quote_versions SET is_current = FALSE WHERE bid_id = :bid_id AND is_current = TRUE"),
+                    {"bid_id": bid_id},
+                )
+                connection.execute(
+                    text("""INSERT INTO quote_versions (
+                               bid_id, version_number, quote_price, discount_pct,
+                               margin_pct, source, created_by, is_current
+                           ) VALUES (
+                               :bid_id, :version_number, :quote_price, :discount_pct,
+                               :margin_pct, 'CUSTOMER_OUTCOME', 'Customer email', TRUE
+                           )"""),
+                    {
+                        "bid_id": bid_id,
+                        "version_number": next_version,
+                        "quote_price": final_quote_price,
+                        "discount_pct": discount_pct,
+                        "margin_pct": margin_pct,
+                    },
+                )
+
+        result = connection.execute(
+            text("""UPDATE bids
+                   SET status = :status,
+                       lost_reason = :lost_reason,
+                       outcome_missing_fields = :missing_fields,
+                       outcome_source_message_id = :message_id
+                   WHERE bid_id = :bid_id AND status = 'CLOSED'"""),
+            {
+                "status": status,
+                "lost_reason": lost_reason if status == "LOST" else None,
+                "missing_fields": missing_fields,
+                "message_id": source_message_id,
+                "bid_id": bid_id,
+            },
+        )
+        if result.rowcount != 1:
+            raise RuntimeError("Bid status changed while the outcome was being applied.")
+        return {"matched": True, "duplicate": False, "bid_id": bid_id, "status": status}
 
 def get_bid_line_items(bid_id: int):
 

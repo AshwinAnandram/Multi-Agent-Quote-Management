@@ -86,15 +86,24 @@ def save_inbound_rfq(email, intake: dict) -> dict:
 
 
 def list_on_hold_rfqs(page: int = 1, page_size: int = 25) -> dict:
+    return _list_rfqs_by_processing_status("ON_HOLD", page, page_size)
+
+
+def list_rejected_rfqs(page: int = 1, page_size: int = 25) -> dict:
+    return _list_rfqs_by_processing_status("REJECTED", page, page_size)
+
+
+def _list_rfqs_by_processing_status(status: str, page: int, page_size: int) -> dict:
     offset = (page - 1) * page_size
     with engine.connect() as connection:
         total = connection.execute(
-            text("SELECT COUNT(*) FROM rfqs WHERE processing_status = 'ON_HOLD'")
+            text("SELECT COUNT(*) FROM rfqs WHERE processing_status = :status"),
+            {"status": status},
         ).scalar_one()
         rows = connection.execute(
             text("""SELECT r.rfq_id, r.received_date, r.required_by_date,
                           r.delivery_location, r.rfq_description, r.processing_status,
-                          r.extracted_json,
+                          r.extracted_json, r.rejection_reason,
                           (SELECT COALESCE(json_agg(json_build_object(
                               'product_name', ri.product_name_raw,
                               'quantity', ri.quantity,
@@ -102,10 +111,10 @@ def list_on_hold_rfqs(page: int = 1, page_size: int = 25) -> dict:
                           )), '[]'::json)
                            FROM rfq_line_items ri WHERE ri.rfq_id = r.rfq_id) AS line_items
                    FROM rfqs r
-                   WHERE r.processing_status = 'ON_HOLD'
+                   WHERE r.processing_status = :status
                    ORDER BY r.received_date DESC NULLS LAST, r.rfq_id DESC
                    LIMIT :limit OFFSET :offset"""),
-            {"limit": page_size, "offset": offset},
+            {"status": status, "limit": page_size, "offset": offset},
         ).mappings().all()
         customer_names = {
             " ".join(name.split()).casefold()
@@ -116,14 +125,14 @@ def list_on_hold_rfqs(page: int = 1, page_size: int = 25) -> dict:
         "total": total,
         "rfqs": [
             {
-                **_on_hold_rfq_fields(row, customer_names),
+                **_rfq_list_fields(row, customer_names),
             }
             for row in rows
         ],
     }
 
 
-def _on_hold_rfq_fields(row, customer_names: set[str]) -> dict:
+def _rfq_list_fields(row, customer_names: set[str]) -> dict:
     payload = row["extracted_json"] or {}
     intake = payload.get("intake") or {}
     merged = intake.get("merged") or {}
@@ -141,6 +150,7 @@ def _on_hold_rfq_fields(row, customer_names: set[str]) -> dict:
         "customer_exists": bool(normalized_name and normalized_name in customer_names),
         "line_items": row["line_items"] or [],
         "review_reasons": intake.get("review_reasons") or [],
+        "rejection_reason": row["rejection_reason"],
     }
 
 
@@ -149,7 +159,8 @@ def get_rfq_review(rfq_id: int) -> dict | None:
         rfq = connection.execute(
             text("""SELECT rfq_id, customer_id, received_date, required_by_date,
                           delivery_location, currency, payment_terms, rfq_description,
-                          source_message_id, extracted_json, processing_status
+                          source_message_id, extracted_json, processing_status,
+                          rejection_reason
                    FROM rfqs WHERE rfq_id = :rfq_id"""),
             {"rfq_id": rfq_id},
         ).mappings().first()
@@ -327,19 +338,11 @@ def save_rfq_review(
 def reject_rfq(rfq_id: int, reason: str) -> bool:
     with engine.begin() as connection:
         result = connection.execute(
-            text("""UPDATE rfqs SET processing_status = 'REJECTED'
+            text("""UPDATE rfqs
+                   SET processing_status = 'REJECTED', rejection_reason = :reason
                    WHERE rfq_id = :rfq_id AND processing_status IN ('ON_HOLD', 'EXTRACTED')"""),
-            {"rfq_id": rfq_id},
+            {"rfq_id": rfq_id, "reason": reason},
         )
-        if result.rowcount:
-            connection.execute(
-                text("""UPDATE rfqs
-                       SET extracted_json = jsonb_set(
-                           COALESCE(extracted_json, '{}'::jsonb),
-                           '{review_decision}', CAST(:decision AS jsonb), TRUE
-                       ) WHERE rfq_id = :rfq_id"""),
-                {"rfq_id": rfq_id, "decision": json.dumps({"status": "REJECTED", "reason": reason})},
-            )
         return result.rowcount == 1
 
 

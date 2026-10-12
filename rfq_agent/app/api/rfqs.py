@@ -8,6 +8,7 @@ from app.repositories.rfq_repository import (
     get_rfq_review,
     create_or_find_customer,
     list_on_hold_rfqs,
+    list_rejected_rfqs,
     reject_rfq,
     save_rfq_review,
     accept_rfq,
@@ -62,6 +63,13 @@ def get_on_hold(page: int = 1, page_size: int = 25):
     if page < 1 or page_size not in {25, 50, 100}:
         raise HTTPException(status_code=400, detail="Invalid pagination values.")
     return list_on_hold_rfqs(page, page_size)
+
+
+@router.get("/rejected")
+def get_rejected(page: int = 1, page_size: int = 25):
+    if page < 1 or page_size not in {25, 50, 100}:
+        raise HTTPException(status_code=400, detail="Invalid pagination values.")
+    return list_rejected_rfqs(page, page_size)
 
 
 @router.get("/review-options")

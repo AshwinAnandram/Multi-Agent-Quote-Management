@@ -9,6 +9,7 @@ function BidListPage() {
 
   const [status, setStatus] = useState("OPEN");
   const [showOnHold, setShowOnHold] = useState(searchParams.get("tab") === "on-hold");
+  const [showRejected, setShowRejected] = useState(searchParams.get("tab") === "rejected");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -50,6 +51,7 @@ function BidListPage() {
 
   function handleStatusChange(newStatus) {
     setShowOnHold(false);
+    setShowRejected(false);
     setSearchParams({}, { replace: true });
     setStatus(newStatus);
     setPage(1);
@@ -57,7 +59,14 @@ function BidListPage() {
 
   function handleOnHoldChange() {
     setShowOnHold(true);
+    setShowRejected(false);
     setSearchParams({ tab: "on-hold" }, { replace: true });
+  }
+
+  function handleRejectedChange() {
+    setShowOnHold(false);
+    setShowRejected(true);
+    setSearchParams({ tab: "rejected" }, { replace: true });
   }
 
   function handlePageSizeChange(event) {
@@ -91,27 +100,46 @@ function BidListPage() {
 
         <div className="status-filter">
           <button
+            className={!showOnHold && !showRejected && status === "WON" ? "active" : ""}
+            onClick={() => handleStatusChange("WON")}
+          >
+            Won
+          </button>
+          <button
+            className={!showOnHold && !showRejected && status === "LOST" ? "active" : ""}
+            onClick={() => handleStatusChange("LOST")}
+          >
+            Lost
+          </button>
+          <button
             className={showOnHold ? "active" : ""}
             onClick={handleOnHoldChange}
           >
             On Hold
           </button>
           <button
-            className={!showOnHold && status === "OPEN" ? "active" : ""}
+            className={!showOnHold && !showRejected && status === "OPEN" ? "active" : ""}
             onClick={() => handleStatusChange("OPEN")}
           >
             Open
           </button>
 
           <button
-            className={!showOnHold && status === "CLOSED" ? "active" : ""}
+            className={!showOnHold && !showRejected && status === "CLOSED" ? "active" : ""}
             onClick={() => handleStatusChange("CLOSED")}
           >
             Closed
           </button>
 
           <button
-            className={!showOnHold && status === "ALL" ? "active" : ""}
+            className={showRejected ? "active" : ""}
+            onClick={handleRejectedChange}
+          >
+            Rejected
+          </button>
+
+          <button
+            className={!showOnHold && !showRejected && status === "ALL" ? "active" : ""}
             onClick={() => handleStatusChange("ALL")}
           >
             All
@@ -121,6 +149,8 @@ function BidListPage() {
 
       {showOnHold ? (
         <OnHoldBids />
+      ) : showRejected ? (
+        <RejectedRFQs />
       ) : (
         <>
       <div className="list-controls">
@@ -205,6 +235,11 @@ function BidListPage() {
 
                 <span className="status-open">
                   {bid.status}
+                  {bid.outcome_missing_fields?.length > 0 && (
+                    <small className="outcome-missing-flag">
+                      Missing: {bid.outcome_missing_fields.map((field) => field.replaceAll("_", " ")).join(", ")}
+                    </small>
+                  )}
                 </span>
               </div>
             ))}
@@ -243,6 +278,70 @@ function BidListPage() {
         </>
       )}
     </main>
+  );
+}
+
+function RejectedRFQs() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/rfqs/rejected`)
+      .then((response) => {
+        if (!response.ok) throw new Error("Failed to load rejected RFQs.");
+        return response.json();
+      })
+      .then((data) => setItems(data.rfqs))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="message">Loading rejected RFQs...</div>;
+  if (error) return <div className="message error">{error}</div>;
+
+  return (
+    <section className="on-hold-list">
+      <p>Rejected requests are available for viewing only.</p>
+      {items.length === 0 ? (
+        <div className="empty-state">No rejected RFQs</div>
+      ) : items.map((item) => (
+        <article className="on-hold-card" key={item.rfq_id}>
+          <header className="on-hold-card-header">
+            <strong>RFQ {item.rfq_id}</strong>
+            <span>REJECTED</span>
+          </header>
+          <div className="on-hold-fields">
+            <div className="on-hold-field">
+              <span className="on-hold-field-label">Customer</span>
+              <strong>{item.customer_name || "Customer not identified"}</strong>
+            </div>
+            <div className="on-hold-field">
+              <span className="on-hold-field-label">Request</span>
+              <strong>{item.rfq_description || "Email RFQ"}</strong>
+            </div>
+            <div className="on-hold-field">
+              <span className="on-hold-field-label">Requested items</span>
+              {item.line_items?.length ? (
+                <ul>{item.line_items.map((line, index) => (
+                  <li key={`${line.product_name || "item"}-${index}`}>
+                    {line.product_name || "Item not identified"}{line.quantity != null ? ` · ${line.quantity}` : ""}{line.unit ? ` ${line.unit}` : ""}
+                  </li>
+                ))}</ul>
+              ) : <strong>Items not extracted</strong>}
+            </div>
+            <div className="on-hold-field">
+              <span className="on-hold-field-label">Rejected because</span>
+              <strong>{item.rejection_reason || "No reason recorded"}</strong>
+              {item.sender && <span className="on-hold-field-note">From: {item.sender}</span>}
+            </div>
+          </div>
+          <footer className="on-hold-card-footer">
+            <Link to={`/rfqs/${item.rfq_id}/review`}>View RFQ details</Link>
+          </footer>
+        </article>
+      ))}
+    </section>
   );
 }
 

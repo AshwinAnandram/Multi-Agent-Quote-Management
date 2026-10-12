@@ -12,6 +12,8 @@ function BidDetailPage() {
   const [bid, setBid] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [actionMessage, setActionMessage] = useState("");
+  const [finalizing, setFinalizing] = useState(false);
 
   const fetchBidDetail = useCallback(async () => {
     setLoading(true);
@@ -56,6 +58,24 @@ function BidDetailPage() {
     }
 
     return `${Number(value).toFixed(2)}%`;
+  }
+
+  async function finalizeBid() {
+    if (!window.confirm(`Email bid ${bid.bid_id} details to ${bid.sales_rep_email || "the assigned sales rep"} and close this bid?`)) return;
+    setFinalizing(true);
+    setError(null);
+    setActionMessage("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/bids/${bidId}/finalize`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Failed to finalize bid.");
+      setBid((current) => ({ ...current, status: data.status }));
+      setActionMessage(`Bid closed and details emailed to ${data.sales_rep_email}.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setFinalizing(false);
+    }
   }
 
   if (loading) {
@@ -110,10 +130,37 @@ function BidDetailPage() {
         <span className="detail-status">
           {bid.status}
         </span>
+        {bid.status === "OPEN" && (
+          <button className="finalize-bid-button" onClick={finalizeBid} disabled={finalizing || !bid.sales_rep_email}>
+            {finalizing ? "Sending…" : "Finalize and notify sales rep"}
+          </button>
+        )}
       </div>
+
+      {bid.status === "OPEN" && !bid.sales_rep_email && (
+        <div className="review-alert">Add an email address to the assigned sales rep before finalizing this bid.</div>
+      )}
+
+      {error && <div className="message error">{error}</div>}
+      {actionMessage && <div className="message success">{actionMessage}</div>}
+
+      {bid.outcome_missing_fields?.length > 0 && (
+        <div className="review-alert">
+          Outcome recorded with missing fields: {bid.outcome_missing_fields.map((field) => field.replaceAll("_", " ")).join(", ")}.
+        </div>
+      )}
+      {bid.status === "LOST" && (
+        <section className="detail-section">
+          <h3>Lost reason</h3>
+          <p>{bid.lost_reason || "No lost reason was included in the customer email."}</p>
+        </section>
+      )}
 
       <div className="detail-section">
         <h3>Bid Information</h3>
+        <p className="bid-assigned-rep">
+          <strong>Assigned sales rep:</strong> {bid.sales_rep_name || "Unassigned"}
+        </p>
 
         <div className="detail-table">
           <div className="detail-table-header bid-information-columns">

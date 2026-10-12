@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -34,10 +36,20 @@ class RFQDetails(BaseModel):
     quote_reference: str | None = None
 
 
+class BidOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bid_id: int | None = Field(default=None, ge=1)
+    status: Literal["WON", "LOST"] | None = None
+    final_quote_price: float | None = Field(default=None, gt=0)
+    lost_reason: str | None = None
+
+
 class StructuredRFQ(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     customer: RFQCustomer
     rfq: RFQDetails
+    bid_outcome: BidOutcome = Field(default_factory=BidOutcome)
     line_items: list[RFQLineItem] = Field(default_factory=list)
     special_requirements: list[str] = Field(default_factory=list)

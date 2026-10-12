@@ -3,7 +3,9 @@ from typing import Literal
 
 from app.services.bid_service import (
     list_bids,
-    get_bid_detail
+    get_bid_detail,
+    finalize_open_bid,
+    BidFinalizationError,
 )
 
 router = APIRouter(
@@ -14,7 +16,7 @@ router = APIRouter(
 
 @router.get("")
 def get_bid_list(
-    status: Literal["OPEN", "CLOSED", "ALL"] = "OPEN",
+    status: Literal["OPEN", "CLOSED", "WON", "LOST", "ALL"] = "OPEN",
     page: int = 1,
     page_size: int = 25
 ):
@@ -65,3 +67,15 @@ def get_bid(bid_id: int):
         )
 
     return bid
+
+
+@router.post("/{bid_id}/finalize")
+def finalize_bid(bid_id: int):
+    try:
+        return finalize_open_bid(bid_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except BidFinalizationError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error

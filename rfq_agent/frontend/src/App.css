@@ -33,6 +33,7 @@
 .status-filter {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .status-filter button {
@@ -123,6 +124,9 @@
 .review-actions button:disabled { opacity: .6; cursor: wait; }
 .review-actions .reject-button { background: #b91c1c; }
 .review-actions .accept-button { background: #047857; }
+.reject-confirmation { display: grid; gap: 8px; flex-basis: 100%; max-width: 560px; padding: 14px; border: 1px solid #fecaca; border-radius: 8px; background: #fff7f7; }
+.reject-confirmation textarea { width: 100%; resize: vertical; border: 1px solid #d1d5db; border-radius: 6px; padding: 9px; font: inherit; }
+.reject-confirmation .customer-actions button[type="button"] { color: #111827; }
 .conflict-confirm { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #374151; }
 .message.success { background: #ecfdf5; color: #047857; padding: 12px; border-radius: 6px; }
 .new-customer-form { border: 1px solid #d1d5db; background: #f9fafb; padding: 16px; border-radius: 8px; margin-bottom: 20px; }
@@ -193,6 +197,7 @@
   font-size: 12px;
   font-weight: 600;
 }
+.outcome-missing-flag { display: block; margin-top: 4px; color: #9a3412; font-weight: 500; }
 
 .list-controls {
   display: flex;
@@ -252,6 +257,8 @@
   font-size: 12px;
   font-weight: 600;
 }
+.finalize-bid-button { border: 0; border-radius: 6px; padding: 9px 12px; color: #fff; background: #047857; cursor: pointer; }
+.finalize-bid-button:disabled { opacity: .6; cursor: wait; }
 
 .detail-section {
   background: #ffffff;
@@ -315,6 +322,11 @@
     1.2fr
     1.2fr
     0.9fr;
+}
+
+.bid-assigned-rep {
+  margin: 0 0 12px;
+  color: #374151;
 }
 
 .quote-columns {

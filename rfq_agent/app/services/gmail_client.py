@@ -2,6 +2,7 @@
 
 import base64
 import os
+from email.message import EmailMessage
 from datetime import datetime, timezone
 from email import message_from_bytes
 from email.header import decode_header, make_header
@@ -68,6 +69,19 @@ class GmailInbox:
             id=email.message_id,
             body={"addLabelIds": [self._label_id]},
         ).execute()
+
+    def send_message(self, recipient: str, subject: str, body: str) -> str:
+        message = EmailMessage()
+        message["To"] = recipient
+        message["From"] = self.mailbox
+        message["Subject"] = subject
+        message.set_content(body)
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+        result = self.service.users().messages().send(
+            userId="me",
+            body={"raw": raw},
+        ).execute()
+        return result["id"]
 
     def _parse_message(self, message: dict[str, Any]) -> InboundEmail:
         raw_bytes = _decode_base64url(message["raw"])

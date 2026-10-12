@@ -82,6 +82,12 @@ def extract_inbound_email(
         merged = {
             "customer": {"name": None, "email": None},
             "rfq": {},
+            "bid_outcome": {
+                "bid_id": None,
+                "status": None,
+                "final_quote_price": None,
+                "lost_reason": None,
+            },
             "line_items": [],
             "special_requirements": [],
         }
@@ -104,6 +110,48 @@ def extract_inbound_email(
         "issues": issues,
         "missing_fields": missing_fields,
         "review_reasons": review_reasons,
+    }
+
+
+def resolve_bid_outcome(intake: dict) -> dict | None:
+    """Return a safe, matchable outcome only when ID and status are unambiguous."""
+    merged = intake.get("merged") or {}
+    outcome = merged.get("bid_outcome") or {}
+    conflicts = {
+        conflict.get("field")
+        for conflict in intake.get("conflicts") or []
+    }
+    if any(field in conflicts for field in (
+        "bid_outcome.bid_id",
+        "bid_outcome.status",
+    )):
+        return None
+
+    bid_id = outcome.get("bid_id")
+    status = outcome.get("status")
+    if not isinstance(bid_id, int) or status not in {"WON", "LOST"}:
+        return None
+
+    missing_fields = []
+    final_quote_price = outcome.get("final_quote_price")
+    lost_reason = outcome.get("lost_reason")
+    if status == "WON":
+        if "bid_outcome.final_quote_price" in conflicts or final_quote_price is None:
+            missing_fields.append("final_quote_price")
+            final_quote_price = None
+        lost_reason = None
+    else:
+        if "bid_outcome.lost_reason" in conflicts or not str(lost_reason or "").strip():
+            missing_fields.append("lost_reason")
+            lost_reason = None
+        final_quote_price = None
+
+    return {
+        "bid_id": bid_id,
+        "status": status,
+        "final_quote_price": final_quote_price,
+        "lost_reason": str(lost_reason).strip() if lost_reason else None,
+        "missing_fields": missing_fields,
     }
 
 
